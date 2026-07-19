@@ -27,10 +27,10 @@ __pycache__/
 .pytest_cache/
 
 # Generated research outputs
-artifacts/
+/artifacts/
 
 # Local datasets
-data/
+/data/
 
 # Mac files
 .DS_Store

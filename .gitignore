@@ -15,13 +15,7 @@ dist/
 .env.*
 .DS_Store
 .idea/
-.vscode/
-data/**
-!data/**/
-!data/**/.gitkeep
-artifacts/**
-!artifacts/**/
-!artifacts/**/.gitkeep
+.vscode//
 .ipynb_checkpoints/
 # Python environments
 .venv/

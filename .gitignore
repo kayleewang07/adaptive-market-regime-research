@@ -1,0 +1,45 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/
+data/**
+!data/**/
+!data/**/.gitkeep
+artifacts/**
+!artifacts/**/
+!artifacts/**/.gitkeep
+.ipynb_checkpoints/
+# Python environments
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+
+# Generated research outputs
+artifacts/
+
+# Local datasets
+data/
+
+# Mac files
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/

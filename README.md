@@ -1,5 +1,34 @@
 # Adaptive Market Regime Research Platform
 
+A machine learning framework for detecting hidden market regimes and evaluating systematic trading strategies.
+
+## Overview
+
+This project applies unsupervised learning and quantitative research techniques to identify changing market environments and analyze strategy robustness.
+
+The platform combines market data engineering, regime detection models, explainable machine learning, and transaction-cost-aware backtesting.
+
+## Features
+
+- Market data ingestion with yfinance
+- Lag-safe feature engineering
+- Gaussian Mixture Models (GMM)
+- Hidden Markov Models (HMM)
+- K-Means clustering
+- Bayesian change-point detection
+- Transaction-cost-aware backtesting
+- Strategy evaluation across market regimes
+- Explainability analysis
+- Interactive Streamlit dashboard
+
+## Dashboard Preview
+
+![Dashboard](screenshots/position_signals_timeline.png)
+
+![Regimes](screenshots/strategy_performance_metrics.png)
+
+![Strategies](screenshots/cumulative_returns_comparison.png)# Adaptive Market Regime Research Platform
+
 Production-oriented research platform for market-regime detection and strategy evaluation across regimes.
 
 ## Status

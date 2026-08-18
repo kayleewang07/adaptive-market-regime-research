@@ -1,5 +1,10 @@
 # Adaptive Market Regime Research Platform
 
+# Clone and run the experiment pipeline
+git clone https://github.com/kayleewang07/adaptive-market-regime-research.git
+pip install -r requirements.txt
+python scripts/run_experiment.py --config configs/default.yaml
+streamlit run scripts/app.py
 A machine learning framework for detecting hidden market regimes and evaluating systematic trading strategies.
 
 ## Overview

@@ -1,0 +1,17 @@
+# Default experiment. Regime models are fitted on [start, train_end) and
+# everything from train_end to end is reported as out-of-sample.
+symbol: SPY
+start: "2005-01-01"
+train_end: "2015-01-01"
+end: "2025-01-01"
+regime_model: hmm          # gmm | hmm | kmeans | bayesian_changepoint
+n_regimes: 3
+seed: 42
+transaction_cost_bps: 5.0
+slippage_bps: 2.0
+strategies:
+  - buy_and_hold
+  - moving_average_crossover
+  - mean_reversion
+  - volatility_breakout
+  - momentum

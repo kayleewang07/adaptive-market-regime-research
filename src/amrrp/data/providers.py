@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 import pandas as pd
 
 
-class YFinanceProvider:
-    """Download daily adjusted OHLCV data through yfinance."""
+class MarketDataProvider(Protocol):
+    """Anything that can return a daily OHLCV frame for one symbol."""
 
     def download(self, symbol: str, start: str, end: str) -> pd.DataFrame:
-        """Download one symbol for ``[start, end]``; end is converted for yfinance."""
-        try:
-            import yfinance as yf
-        except ImportError as error:
-            raise ImportError("Install yfinance to download market data.") from error
-        frame = yf.download(symbol, start=start, end=end, auto_adjust=True, progress=False)
+        """Return daily OHLCV data for ``[start, end)``."""
+        ...
+
+
+class YFinanceProvider:
+    """Download daily split- and dividend-adjusted OHLCV data through yfinance."""
+
+    def download(self, symbol: str, start: str, end: str) -> pd.DataFrame:
+        """Download one symbol for ``[start, end)``; raise if nothing comes back."""
+        import yfinance as yf
+
+        frame: pd.DataFrame = yf.download(
+            symbol, start=start, end=end, auto_adjust=True, progress=False
+        )
+        if frame is None or frame.empty:
+            raise ValueError(
+                f"No data returned for {symbol!r} between {start} and {end}. Check the "
+                "ticker, the dates and your internet connection (Yahoo Finance must be reachable)."
+            )
         if isinstance(frame.columns, pd.MultiIndex):
             frame.columns = frame.columns.get_level_values(0)
         return frame

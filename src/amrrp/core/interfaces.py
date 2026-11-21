@@ -9,7 +9,13 @@ import pandas as pd
 
 
 class Strategy(ABC):
-    """Produce daily target weights from a market frame."""
+    """Produce daily target weights from a market frame.
+
+    Timing convention: the weight at date ``t`` is the position chosen *at the close of
+    ``t``* using information available up to and including ``t``. The backtest engine
+    holds that position over the following session (``t`` to ``t + 1``), so strategies
+    must not lag their own signals.
+    """
 
     name: str
 
@@ -31,7 +37,7 @@ class RegimeModel(ABC):
 
     @abstractmethod
     def predict_proba(self, features: pd.DataFrame) -> pd.DataFrame:
-        """Return one probability column per regime."""
+        """Return regime (or change-point) probabilities per observation."""
 
     @abstractmethod
     def visualize(self, features: pd.DataFrame) -> Any:

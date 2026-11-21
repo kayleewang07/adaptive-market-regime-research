@@ -1,1 +1,1 @@
-"""Event-driven portfolio simulation and metrics."""
+"""Daily vectorized portfolio simulation and metrics."""

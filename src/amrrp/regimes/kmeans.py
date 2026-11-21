@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -10,7 +12,10 @@ from .visualization import regime_figure
 
 
 class KMeansRegimeModel(BaseRegimeModel):
-    """Centroid-based regime classifier with distance-derived probabilities."""
+    """Centroid-based regime classifier with distance-derived affinities.
+
+    Each day is assigned to its nearest centroid independently, so labels are causal.
+    """
 
     def __init__(self, n_regimes: int = 3, random_state: int = 42) -> None:
         """Store clustering configuration."""
@@ -23,7 +28,7 @@ class KMeansRegimeModel(BaseRegimeModel):
 
         self.feature_names_ = list(features.columns)
         self.scaler_ = StandardScaler().fit(features)
-        self.model_ = KMeans(self.n_regimes, n_init="auto", random_state=self.random_state).fit(
+        self.model_ = KMeans(self.n_regimes, n_init=10, random_state=self.random_state).fit(
             self.scaler_.transform(features)
         )
         return self
@@ -36,16 +41,16 @@ class KMeansRegimeModel(BaseRegimeModel):
         )
 
     def predict_proba(self, features: pd.DataFrame) -> pd.DataFrame:
-        """Return normalized inverse-distance regime affinity."""
+        """Return a softmax over negative centroid distances (not a calibrated probability)."""
         values = self._prepare(features)
         distance = self.model_.transform(self.scaler_.transform(values))
-        affinity = np.exp(-distance)
+        affinity = np.exp(-(distance - distance.min(axis=1, keepdims=True)))
         return pd.DataFrame(
             affinity / affinity.sum(axis=1, keepdims=True),
             index=values.index,
             columns=[f"regime_{i}" for i in range(self.n_regimes)],
         )
 
-    def visualize(self, features: pd.DataFrame):
+    def visualize(self, features: pd.DataFrame) -> Any:
         """Return a regime timeline figure."""
         return regime_figure(self.predict(features))

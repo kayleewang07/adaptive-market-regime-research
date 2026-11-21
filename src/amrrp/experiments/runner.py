@@ -7,66 +7,119 @@ from pathlib import Path
 import pandas as pd
 
 from amrrp.analytics.performance import compare_strategies
-from amrrp.analytics.regime_comparison import compare_by_regime
+from amrrp.analytics.regime_comparison import compare_by_regime, regime_summary
 from amrrp.backtesting.engine import BacktestEngine
-from amrrp.core.types import ExperimentResult
+from amrrp.core.types import BacktestConfig, ExperimentResult
+from amrrp.data.validation import validate_market_frame
+from amrrp.explainability.feature_importance import feature_importance
+from amrrp.explainability.transitions import transition_matrix
 from amrrp.features.pipeline import FeaturePipeline
-from amrrp.regimes.bayesian_changepoint import BayesianChangePointRegimeModel
-from amrrp.regimes.gmm import GMMRegimeModel
-from amrrp.regimes.hmm import HMMRegimeModel
-from amrrp.regimes.kmeans import KMeansRegimeModel
-from amrrp.strategies.buy_and_hold import BuyAndHold
-from amrrp.strategies.ma_crossover import MovingAverageCrossover
-from amrrp.strategies.mean_reversion import MeanReversion
-from amrrp.strategies.momentum import Momentum
-from amrrp.strategies.volatility_breakout import VolatilityBreakout
+from amrrp.regimes.labeling import order_regimes
+from amrrp.reporting.report_builder import build_markdown_report
 
+from .registry import STATE_MODELS, STRATEGIES, build_regime_model
+from .specification import ExperimentSpec
 from .tracking import create_run_directory, write_manifest
+
+MIN_TRAINING_DAYS = 250
 
 
 class ExperimentRunner:
-    """Run regime detection and a collection of strategies from one specification."""
+    """Detect regimes and evaluate strategies with a strict train/test split.
+
+    1. Build lagged features from the full price history (each row only uses data
+       available before that day).
+    2. Fit the regime model on rows before ``train_end`` only.
+    3. Label every day with that frozen model. All four models label causally.
+    4. Backtest every strategy over the full history and report metrics separately
+       for the training and out-of-sample (test) periods.
+    """
 
     def __init__(self, artifact_root: Path = Path("artifacts")) -> None:
-        """Store the output root for reproducible research runs."""
+        """Store the output root for research runs."""
         self.artifact_root = artifact_root
 
-    def run(self, market_data: pd.DataFrame, specification) -> ExperimentResult:
-        """Execute all configured models/strategies and save metrics and returns."""
+    def run(self, market_data: pd.DataFrame, specification: ExperimentSpec) -> ExperimentResult:
+        """Execute the experiment, write artifacts and return the out-of-sample metrics."""
+        validate_market_frame(market_data)
+        train_end = pd.Timestamp(specification.train_end)
         features = FeaturePipeline().fit_transform(market_data)
-        model_type = {
-            "gmm": GMMRegimeModel,
-            "hmm": HMMRegimeModel,
-            "kmeans": KMeansRegimeModel,
-            "bayesian_changepoint": BayesianChangePointRegimeModel,
-        }[specification.regime_model]
-        model = (
-            model_type(n_regimes=specification.n_regimes, random_state=specification.seed)
-            if specification.regime_model != "bayesian_changepoint"
-            else model_type()
+        train_features = features[features.index < train_end]
+        if len(train_features) < MIN_TRAINING_DAYS:
+            raise ValueError(
+                f"Only {len(train_features)} training rows before {specification.train_end}; "
+                f"need at least {MIN_TRAINING_DAYS}. Move train_end later or start earlier."
+            )
+        if not (features.index >= train_end).any():
+            raise ValueError(f"No data on or after train_end={specification.train_end}.")
+
+        model = build_regime_model(
+            specification.regime_model, specification.n_regimes, specification.seed
         )
-        model.fit(features)
+        model.fit(train_features)
         regimes = model.predict(features)
-        strategy_types = {
-            "buy_and_hold": BuyAndHold,
-            "moving_average_crossover": MovingAverageCrossover,
-            "mean_reversion": MeanReversion,
-            "volatility_breakout": VolatilityBreakout,
-            "momentum": Momentum,
+        if specification.regime_model in STATE_MODELS and "rolling_volatility" in features:
+            # Renumber so regime 0 is the calmest state in the training window.
+            train_regimes = regimes[regimes.index < train_end]
+            mapping = order_regimes(
+                train_regimes, features.loc[train_regimes.index, "rolling_volatility"]
+            )
+            regimes = regimes.map(mapping).astype(int).rename("regime")
+
+        config = BacktestConfig(
+            transaction_cost_bps=specification.transaction_cost_bps,
+            slippage_bps=specification.slippage_bps,
+        )
+        engine = BacktestEngine(config)
+        strategy_returns = pd.DataFrame(
+            {
+                name: engine.run(
+                    market_data["Close"], STRATEGIES[name]().generate_signals(market_data)
+                ).returns
+                for name in specification.strategies
+            }
+        )
+        is_test = strategy_returns.index >= train_end
+        train_returns, test_returns = strategy_returns[~is_test], strategy_returns[is_test]
+        test_regimes = regimes[regimes.index >= train_end]
+        train_regimes = regimes[regimes.index < train_end]
+        asset_returns = market_data["Close"].pct_change().rename("asset_return")
+
+        metrics_test = compare_strategies(test_returns)
+        metrics_train = compare_strategies(train_returns)
+        regime_metrics_test = compare_by_regime(test_returns, test_regimes)
+        regime_metrics_train = compare_by_regime(train_returns, train_regimes)
+        summary_test = regime_summary(asset_returns, test_regimes)
+        transitions = transition_matrix(test_regimes)
+        importance = feature_importance(
+            train_features.loc[train_regimes.index], train_regimes, specification.seed
+        )
+
+        run_id, directory = create_run_directory(self.artifact_root, specification.regime_model)
+        metadata = {
+            "run_id": run_id,
+            "train_rows": len(train_regimes),
+            "test_rows": len(test_regimes),
+            "features": list(features.columns),
         }
-        engine, returns = BacktestEngine(), {}
-        for name in specification.strategies:
-            strategy = strategy_types[name]()
-            result = engine.run(market_data["Close"], strategy.generate_signals(market_data))
-            returns[name] = result.returns
-        strategy_returns = pd.DataFrame(returns)
-        metrics = compare_strategies(strategy_returns)
-        run_id, directory = create_run_directory(self.artifact_root)
-        write_manifest(directory, specification)
-        metrics.to_csv(directory / "metrics.csv")
+        write_manifest(directory, specification, **metadata)
+        metrics_test.to_csv(directory / "metrics_test.csv")
+        metrics_train.to_csv(directory / "metrics_train.csv")
+        regime_metrics_test.to_csv(directory / "regime_metrics_test.csv")
+        regime_metrics_train.to_csv(directory / "regime_metrics_train.csv")
+        summary_test.to_csv(directory / "regime_summary_test.csv")
+        transitions.to_csv(directory / "transition_matrix_test.csv")
+        importance.rename("importance").to_csv(directory / "feature_importance.csv")
         strategy_returns.to_parquet(directory / "strategy_returns.parquet")
         regimes.to_frame().to_parquet(directory / "regimes.parquet")
-        compare_by_regime(strategy_returns, regimes).to_csv(directory / "regime_metrics.csv")
-        return ExperimentResult(
-            run_id, directory, metrics, {"regime_model": specification.regime_model}
+        market_data[["Close"]].to_parquet(directory / "prices.parquet")
+        build_markdown_report(
+            specification,
+            metrics_test=metrics_test,
+            metrics_train=metrics_train,
+            regime_summary=summary_test,
+            regime_metrics=regime_metrics_test,
+            importance=importance,
+            output=directory / "report.md",
         )
+        return ExperimentResult(run_id, directory, metrics_test, metadata)

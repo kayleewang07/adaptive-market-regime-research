@@ -1,90 +1,189 @@
-# Adaptive Market Regime Research Platform
+# Adaptive Market Regime Research
 
-# Clone and run the experiment pipeline
-git clone https://github.com/kayleewang07/adaptive-market-regime-research.git
+Do simple trading strategies behave differently in calm and turbulent markets? This project
+detects market regimes with unsupervised models and measures how five baseline strategies
+perform in each regime, **using only out-of-sample data for every reported result**.
 
-pip install -r requirements.txt
+![Regime history](screenshots/regime_history.png)
 
-python scripts/run_experiment.py --config configs/default.yaml
+## What it does
 
-streamlit run scripts/app.py
+1. **Downloads** daily, dividend-adjusted prices from Yahoo Finance (cached locally as parquet)
+   and validates them (no gaps, positive prices, consistent high/low).
+2. **Builds 14 lagged features**: volatility, ATR, RSI, MACD, Bollinger z-score, moving-average
+   distance, momentum, drawdown, return skew and kurtosis, volume z-score. Every feature for day
+   *t* uses data up to *t − 1* only and is independent of the price level.
+3. **Detects regimes** with one of four models, fitted on the training window only:
 
-A machine learning framework for detecting hidden market regimes and evaluating systematic trading strategies.
+   | Model | How it labels a day |
+   |---|---|
+   | Gaussian HMM | forward-filtered state probabilities, `P(state_t \| x_1..x_t)` |
+   | Gaussian mixture | most likely mixture component for that day's features |
+   | K-Means | nearest centroid |
+   | Bayesian online change-point ([Adams & MacKay, 2007](https://arxiv.org/abs/0710.3742)) | run-length posterior on daily returns; a new segment starts when a recent change is >90% likely |
 
-## Overview
+   State models are renumbered so **regime 0 is the calmest** (by training-period volatility).
+4. **Backtests five long-only strategies**: buy-and-hold, moving-average crossover, mean
+   reversion, volatility breakout and time-series momentum. Every trade costs 7 bps
+   (5 bps commission + 2 bps slippage). A position chosen at the close of day *t* earns
+   the return from *t* to *t + 1*.
+5. **Reports** Sharpe, Sortino, Calmar, CAGR, volatility and max drawdown, overall and
+   per regime, plus regime transition probabilities and the features that best separate
+   regimes (via a surrogate random forest).
+6. **Dashboard**: an interactive Streamlit app for browsing every run.
 
-This project applies unsupervised learning and quantitative research techniques to identify changing market environments and analyze strategy robustness.
+## Avoiding look-ahead bias
 
-The platform combines market data engineering, regime detection models, explainable machine learning, and transaction-cost-aware backtesting.
+Backtests often look better than they should because information from the future leaks
+into past decisions. This project guards against that in four places, and each one has a
+test:
 
-## Features
+- **Features** are shifted by one day. A test changes prices from day *t* onward and
+  checks that no feature before *t* changes.
+- **Regime models** are fitted on `start → train_end` only and then frozen. A test
+  changes test-period prices and checks that no training-period label changes.
+- **HMM decoding** uses the forward filter, not Viterbi or forward-backward smoothing
+  (hmmlearn's defaults), because those use the whole sequence. A test checks that
+  changing later observations leaves earlier probabilities unchanged.
+- **Strategies** only use prices up to the decision date. A test checks every strategy
+  the same way.
 
-- Market data ingestion with yfinance
-- Lag-safe feature engineering
-- Gaussian Mixture Models (GMM)
-- Hidden Markov Models (HMM)
-- K-Means clustering
-- Bayesian change-point detection
-- Transaction-cost-aware backtesting
-- Strategy evaluation across market regimes
-- Explainability analysis
-- Interactive Streamlit dashboard
+## Results: SPY, 2005–2024
 
-## Dashboard Preview
+The models were trained on 2005–2014 and every number below covers **2015–2024**, which
+they never saw. Produced by `amrrp run --model hmm` with the default config.
 
-![Dashboard](screenshots/position_signals_timeline.png)
+**What the HMM found (out of sample).** It turned the training data into three states:
 
-![Regimes](screenshots/strategy_performance_metrics.png)
+| Regime | Share of days | SPY annualized volatility | SPY annualized return |
+|---|---|---|---|
+| 0 calm | 52% | 11% | 7% |
+| 1 normal | 30% | 16% | 21% |
+| 2 turbulent | 17% | 31% | 22% |
 
-![Strategies](screenshots/cumulative_returns_comparison.png)# Adaptive Market Regime Research Platform
+States are persistent: the chance of staying in the same regime the next day is 94–98%.
+The model switched to the turbulent state in the last week of February 2020, as the COVID
+crash began, and the change-point model opened a new segment in the same week.
 
-Production-oriented research platform for market-regime detection and strategy evaluation across regimes.
+**Sharpe ratio by regime (out of sample, after costs)**
 
-## Status
+| Regime | Buy & hold | Mean reversion | Momentum | MA crossover | Vol. breakout |
+|---|---|---|---|---|---|
+| 0 calm | 0.63 | 0.38 | 0.54 | 0.58 | 0.45 |
+| 1 normal | 1.33 | 0.30 | 1.33 | 1.19 | 0.75 |
+| 2 turbulent | 0.69 | **0.71** | **−0.24** | 0.14 | **−1.58** |
 
-All planned layers are implemented. Install dependencies before downloading data or running experiments.
+**Takeaways**
 
-## Objectives
+- **Trend-following stops working when markets are turbulent.** Momentum and MA
+  crossover do well in normal markets but fall to a Sharpe of −0.24 and 0.14 in the
+  turbulent regime, where they keep getting whipsawed.
+- **Mean reversion is the only strategy that improves in turbulence** (0.71 vs 0.30
+  to 0.38 elsewhere), because big dips that bounce back happen more often then.
+- **Overall, buy-and-hold was hard to beat** in 2015–2024: Sharpe 0.78 vs 0.67 for the
+  best timing strategy, though trend-following cut max drawdown from −34% to between −22% and −24%.
 
-- Detect market regimes with multiple machine-learning approaches.
-- Evaluate daily trading strategies under realistic execution assumptions.
-- Compare strategy performance by regime.
-- Produce reproducible research artifacts and an interactive Streamlit dashboard.
+**Caveats.** This is one asset over one ten-year test period, so the per-regime numbers
+rest on a few hundred days each and come with no significance tests. Regime metrics
+stitch together days that aren't consecutive. The strategies don't use the regimes yet,
+so these results show where a regime-switching strategy *might* add value, not that one
+does.
 
-## Repository layout
+![Strategy Sharpe by regime](screenshots/strategies_by_regime.png)
+![Equity curves](screenshots/equity_curves.png)
 
-```text
-src/amrrp/       Production package
-tests/           Unit and integration tests
-configs/         Version-controlled experiment configurations
-data/            Local cached and derived data (ignored by Git)
-artifacts/       Generated models, metrics, figures, tables, and reports
-notebooks/       Exploratory analysis
-scripts/         Thin command-line entry points
-docs/            Architecture and methodology documentation
-```
+## Quick start
 
-## Development setup
+Requires Python 3.11+.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/kayleewang07/adaptive-market-regime-research.git
+cd adaptive-market-regime-research
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pre-commit install
 ```
 
-## Planned phases
+Run an experiment (downloads SPY on first use, then reads it from `data/cache/`):
 
-1. Architecture — approved
-2. Repository scaffold — complete
-3. Market-data ingestion — complete
-4. Feature engineering — complete
-5. Regime detection — complete
-6. Event-driven backtesting — complete
-7. Baseline strategies — complete
-8. Research experiment runner — complete
-9. Explainability — complete
-10. Streamlit dashboard — complete
+```bash
+amrrp run                       # uses configs/default.yaml
+amrrp run --model gmm           # gmm | hmm | kmeans | bayesian_changepoint
+amrrp run --symbol QQQ --config configs/default.yaml
+```
+
+Open the dashboard:
+
+```bash
+amrrp dashboard
+```
+
+`python run_research.py` does the same as `amrrp run`.
+
+### Configuration
+
+Edit `configs/default.yaml` or make a copy:
+
+```yaml
+symbol: SPY
+start: "2005-01-01"
+train_end: "2015-01-01"   # models are fitted before this date only
+end: "2025-01-01"
+regime_model: hmm
+n_regimes: 3
+transaction_cost_bps: 5.0
+slippage_bps: 2.0
+strategies: [buy_and_hold, moving_average_crossover, mean_reversion, volatility_breakout, momentum]
+```
+
+Unknown keys, unknown model or strategy names, and impossible dates are rejected before
+any work starts.
+
+### Output
+
+Each run writes a folder like `artifacts/20250101T120000Z-hmm-1a2b3c/` containing:
+
+| File | Contents |
+|---|---|
+| `report.md` | readable summary of the run |
+| `metrics_test.csv` / `metrics_train.csv` | strategy metrics, out-of-sample / in-sample |
+| `regime_metrics_test.csv` | strategy metrics within each regime |
+| `regime_summary_test.csv` | how SPY behaved within each regime |
+| `transition_matrix_test.csv` | one-day regime transition probabilities |
+| `feature_importance.csv` | which features separate the regimes |
+| `regimes.parquet`, `strategy_returns.parquet`, `prices.parquet` | raw series for the dashboard |
+| `manifest.json` | full configuration, so the run can be repeated |
+
+## Development
+
+```bash
+pytest          # 48 tests; no network needed (they use synthetic prices)
+ruff check .
+mypy            # strict mode
+```
+
+```text
+src/amrrp/
+  data/            download, clean, validate, cache
+  features/        lag-safe technical and statistical features
+  regimes/         HMM, GMM, K-Means, Bayesian change-point
+  strategies/      five baseline strategies
+  backtesting/     cost-aware daily backtest engine and metrics
+  analytics/       per-strategy and per-regime comparisons
+  explainability/  transition matrices, surrogate feature importance
+  experiments/     config, train/test runner, run tracking
+  reporting/       Markdown report and plots
+  dashboard/       Streamlit app
+  cli.py           `amrrp run` / `amrrp dashboard`
+tests/             unit and end-to-end tests
+```
+
+## Next steps
+
+- Regime-aware allocation: switch strategies based on the filtered regime, and test it
+  out of sample.
+- Walk-forward re-fitting (for example, yearly) with label alignment between re-fits.
+- Multi-asset features (VIX, rates, credit spreads) and more tickers.
+- Bootstrap confidence intervals for per-regime Sharpe ratios.
 
 ## License
 

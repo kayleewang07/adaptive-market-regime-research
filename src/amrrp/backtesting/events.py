@@ -1,1 +1,0 @@
-"""Backtesting event definitions."""

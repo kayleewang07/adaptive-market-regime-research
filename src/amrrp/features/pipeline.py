@@ -30,8 +30,9 @@ class FeaturePipeline:
             axis=1,
         )
         result = result.replace([float("inf"), float("-inf")], float("nan"))
-        return result.dropna(axis=1, how="all").dropna()
+        cleaned: pd.DataFrame = result.dropna(axis=1, how="all").dropna()
+        return cleaned
 
     def transform(self, market_data: pd.DataFrame) -> pd.DataFrame:
-        """Create an evaluation feature matrix using configured transformers."""
+        """Create a feature matrix; all transformers are stateless, so this equals fit_transform."""
         return self.fit_transform(market_data)

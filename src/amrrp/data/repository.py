@@ -8,14 +8,14 @@ import pandas as pd
 
 from .cache import MarketDataCache
 from .cleaning import clean_market_frame
-from .providers import YFinanceProvider
+from .providers import MarketDataProvider
 from .validation import validate_market_frame
 
 
 class MarketDataRepository:
     """Fetch, clean, validate, and cache market data."""
 
-    def __init__(self, provider: YFinanceProvider, cache: MarketDataCache) -> None:
+    def __init__(self, provider: MarketDataProvider, cache: MarketDataCache) -> None:
         """Configure the provider and cache used by the repository."""
         self.provider, self.cache = provider, cache
 

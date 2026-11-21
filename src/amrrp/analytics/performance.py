@@ -1,4 +1,4 @@
-"""Aggregate and rolling performance analysis."""
+"""Aggregate performance analysis."""
 
 import pandas as pd
 

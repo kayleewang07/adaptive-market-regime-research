@@ -6,7 +6,11 @@ from .base import Strategy
 
 
 class VolatilityBreakout(Strategy):
-    """Enter long when price clears an upper rolling volatility band."""
+    """Go long when price breaks above an upper volatility band.
+
+    Enter when the close exceeds ``mean + multiplier * std`` over ``window`` sessions and
+    stay long until the close falls back below the rolling mean.
+    """
 
     name = "volatility_breakout"
 
@@ -15,9 +19,10 @@ class VolatilityBreakout(Strategy):
         self.window, self.multiplier = window, multiplier
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
-        """Return a lagged upper-band breakout signal."""
+        """Return long (1) / cash (0) weights decided at each close."""
         close = data["Close"]
-        upper = (
-            close.rolling(self.window).mean() + self.multiplier * close.rolling(self.window).std()
-        )
-        return (close > upper).astype(float).shift(1).fillna(0).rename("target_weight")
+        mean, std = close.rolling(self.window).mean(), close.rolling(self.window).std()
+        state = pd.Series(float("nan"), index=data.index)
+        state[close > mean + self.multiplier * std] = 1.0
+        state[close < mean] = 0.0
+        return state.ffill().fillna(0.0).rename("target_weight")

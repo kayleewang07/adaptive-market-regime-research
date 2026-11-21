@@ -52,11 +52,13 @@ class TechnicalFeatures(DataFrameTransformer):
             returns.pow(2).rolling(self.volatility_window).sum() * 252
         ).pow(0.5)
         result["rsi"] = 100 - 100 / (1 + rs)
+        # MACD and ATR are divided by price so they stay comparable as the price level
+        # drifts; raw dollar values would make later years look structurally different.
         result["macd"] = (
             close.ewm(span=self.fast, adjust=False).mean()
             - close.ewm(span=self.slow, adjust=False).mean()
-        )
-        result["atr"] = tr.rolling(self.atr_window).mean()
+        ) / close
+        result["atr"] = tr.rolling(self.atr_window).mean() / close
         result["bollinger_z"] = (close - ma) / std.replace(0, float("nan"))
         result["ma_fast"] = fast_ma / close - 1
         result["ma_slow"] = slow_ma / close - 1

@@ -6,7 +6,7 @@ from .base import Strategy
 
 
 class BuyAndHold(Strategy):
-    """Remain fully allocated after the first observation."""
+    """Remain fully invested from the first close onward."""
 
     name = "buy_and_hold"
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from amrrp.analytics.bootstrap import sharpe_inference
 from amrrp.analytics.performance import compare_strategies
 from amrrp.analytics.regime_comparison import compare_by_regime, regime_summary
 from amrrp.backtesting.engine import BacktestEngine
@@ -16,12 +17,17 @@ from amrrp.explainability.transitions import transition_matrix
 from amrrp.features.pipeline import FeaturePipeline
 from amrrp.regimes.labeling import order_regimes
 from amrrp.reporting.report_builder import build_markdown_report
+from amrrp.strategies.regime_switching import (
+    regime_switching_weights,
+    select_strategy_per_regime,
+)
 
 from .registry import STATE_MODELS, STRATEGIES, build_regime_model
 from .specification import ExperimentSpec
 from .tracking import create_run_directory, write_manifest
 
 MIN_TRAINING_DAYS = 250
+REGIME_SWITCHING = "regime_switching"
 
 
 class ExperimentRunner:
@@ -33,6 +39,10 @@ class ExperimentRunner:
     3. Label every day with that frozen model. All four models label causally.
     4. Backtest every strategy over the full history and report metrics separately
        for the training and out-of-sample (test) periods.
+    5. For state models, build a regime-switching strategy that runs, in each regime,
+       the strategy with the best training-period Sharpe, and test it out of sample.
+    6. Attach bootstrap confidence intervals and tests vs buy-and-hold to the
+       out-of-sample Sharpe ratios.
     """
 
     def __init__(self, artifact_root: Path = Path("artifacts")) -> None:
@@ -71,18 +81,37 @@ class ExperimentRunner:
             slippage_bps=specification.slippage_bps,
         )
         engine = BacktestEngine(config)
+        strategy_weights = pd.DataFrame(
+            {
+                name: STRATEGIES[name]().generate_signals(market_data)
+                for name in specification.strategies
+            }
+        )
         strategy_returns = pd.DataFrame(
             {
-                name: engine.run(
-                    market_data["Close"], STRATEGIES[name]().generate_signals(market_data)
-                ).returns
+                name: engine.run(market_data["Close"], strategy_weights[name]).returns
                 for name in specification.strategies
             }
         )
         is_test = strategy_returns.index >= train_end
-        train_returns, test_returns = strategy_returns[~is_test], strategy_returns[is_test]
         test_regimes = regimes[regimes.index >= train_end]
         train_regimes = regimes[regimes.index < train_end]
+
+        # Regime-aware allocation: choose a strategy per regime from training data only,
+        # then follow that mapping out of sample (trading costs included).
+        regime_map: dict[int, str] = {}
+        if specification.regime_model in STATE_MODELS:
+            default = (
+                "buy_and_hold"
+                if "buy_and_hold" in specification.strategies
+                else specification.strategies[0]
+            )
+            regime_map = select_strategy_per_regime(
+                strategy_returns[~is_test], train_regimes, default=default
+            )
+            switching = regime_switching_weights(strategy_weights, regimes, regime_map, default)
+            strategy_returns[REGIME_SWITCHING] = engine.run(market_data["Close"], switching).returns
+        train_returns, test_returns = strategy_returns[~is_test], strategy_returns[is_test]
         asset_returns = market_data["Close"].pct_change().rename("asset_return")
 
         metrics_test = compare_strategies(test_returns)
@@ -91,6 +120,7 @@ class ExperimentRunner:
         regime_metrics_train = compare_by_regime(train_returns, train_regimes)
         summary_test = regime_summary(asset_returns, test_regimes)
         transitions = transition_matrix(test_regimes)
+        inference = sharpe_inference(test_returns, seed=specification.seed)
         importance = feature_importance(
             train_features.loc[train_regimes.index], train_regimes, specification.seed
         )
@@ -101,6 +131,7 @@ class ExperimentRunner:
             "train_rows": len(train_regimes),
             "test_rows": len(test_regimes),
             "features": list(features.columns),
+            "regime_strategy_map": {str(k): v for k, v in regime_map.items()},
         }
         write_manifest(directory, specification, **metadata)
         metrics_test.to_csv(directory / "metrics_test.csv")
@@ -108,6 +139,7 @@ class ExperimentRunner:
         regime_metrics_test.to_csv(directory / "regime_metrics_test.csv")
         regime_metrics_train.to_csv(directory / "regime_metrics_train.csv")
         summary_test.to_csv(directory / "regime_summary_test.csv")
+        inference.to_csv(directory / "sharpe_inference_test.csv")
         transitions.to_csv(directory / "transition_matrix_test.csv")
         importance.rename("importance").to_csv(directory / "feature_importance.csv")
         strategy_returns.to_parquet(directory / "strategy_returns.parquet")
@@ -119,6 +151,8 @@ class ExperimentRunner:
             metrics_train=metrics_train,
             regime_summary=summary_test,
             regime_metrics=regime_metrics_test,
+            inference=inference,
+            regime_map=regime_map,
             importance=importance,
             output=directory / "report.md",
         )

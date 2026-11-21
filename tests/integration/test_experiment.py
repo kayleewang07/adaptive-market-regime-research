@@ -33,7 +33,11 @@ def test_experiment_writes_out_of_sample_artifacts(model: str, market, tmp_path)
         "prices.parquet",
         "report.md",
     } <= files
-    assert list(result.metrics.index) == list(spec.strategies)
+    expected = list(spec.strategies)
+    if model != "bayesian_changepoint":  # change-point segments don't recur, so no switching
+        expected.append("regime_switching")
+    assert list(result.metrics.index) == expected
+    assert "sharpe_inference_test.csv" in files
     manifest = json.loads((result.artifact_dir / "manifest.json").read_text())
     assert manifest["specification"]["regime_model"] == model
     assert manifest["test_rows"] > 0 and manifest["train_rows"] >= 250
@@ -103,3 +107,18 @@ def test_dashboard_renders_every_page(market, tmp_path, monkeypatch) -> None:
     for page in app.sidebar.radio[0].options:
         app.sidebar.radio[0].set_value(page).run()
         assert not app.exception, page
+
+
+def test_cross_asset_study_summarizes_each_symbol(tmp_path) -> None:
+    """The study runs once per symbol and writes one summary row for each."""
+    from amrrp.experiments.study import run_study
+    from conftest import make_market
+
+    def load(symbol: str, start: str, end: str) -> pd.DataFrame:
+        return make_market(seed=sum(map(ord, symbol)))
+
+    directory, table = run_study(["AAA", "BBB"], ExperimentSpec(**SPEC), load, tmp_path)
+    assert list(table.index) == ["AAA", "BBB"]
+    assert {"switching_sharpe", "p_value", "trend_sharpe_turbulent"} <= set(table.columns)
+    assert (directory / "study_summary.md").exists()
+    assert len([p for p in directory.iterdir() if p.is_dir()]) == 2

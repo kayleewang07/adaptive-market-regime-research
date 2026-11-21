@@ -15,6 +15,7 @@ from pathlib import Path
 PAGES = (
     "Overview",
     "Equity Curves",
+    "Significance",
     "Regime History",
     "Strategies by Regime",
     "Regime Drivers",
@@ -69,8 +70,47 @@ def main(root: Path | None = None) -> None:
         st.subheader(f"Out-of-sample metrics ({spec['train_end']} → {spec['end']})")
         st.caption("Regime models never saw this period. Ratios assume a zero risk-free rate.")
         st.dataframe(pd.read_csv(run / "metrics_test.csv", index_col=0).round(3))
+        regime_map = manifest.get("regime_strategy_map") or {}
+        if regime_map:
+            st.subheader("Regime-switching rule (chosen on training data only)")
+            st.table(
+                pd.DataFrame(
+                    {"strategy": list(regime_map.values())},
+                    index=pd.Index([f"regime {k}" for k in regime_map], name="regime"),
+                )
+            )
         st.subheader(f"In-sample metrics ({spec['start']} → {spec['train_end']})")
+        st.caption("regime_switching is optimistic here: its rule was chosen on this period.")
         st.dataframe(pd.read_csv(run / "metrics_train.csv", index_col=0).round(3))
+
+    elif page == "Significance":
+        table = pd.read_csv(run / "sharpe_inference_test.csv", index_col=0)
+        figure = go.Figure(
+            go.Scatter(
+                x=table["sharpe"],
+                y=table.index,
+                mode="markers",
+                marker={"size": 10},
+                error_x={
+                    "type": "data",
+                    "symmetric": False,
+                    "array": table["ci_high"] - table["sharpe"],
+                    "arrayminus": table["sharpe"] - table["ci_low"],
+                },
+            )
+        )
+        figure.add_vline(x=0, line_color="gray")
+        figure.update_layout(
+            title="Out-of-sample Sharpe ratio with 95% bootstrap interval",
+            xaxis_title="Sharpe ratio",
+            height=120 + 60 * len(table),
+        )
+        st.plotly_chart(figure, use_container_width=True)
+        st.caption(
+            "Stationary bootstrap, 2,000 resamples, 20-day mean blocks. p_value tests whether "
+            "each strategy's Sharpe differs from buy-and-hold (paired on the same days)."
+        )
+        st.dataframe(table.round(3))
 
     elif page == "Equity Curves":
         returns = pd.read_parquet(run / "strategy_returns.parquet")

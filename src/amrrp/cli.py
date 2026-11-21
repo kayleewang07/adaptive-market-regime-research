@@ -49,6 +49,37 @@ def run(
 
 
 @app.command()
+def study(
+    symbols: Annotated[
+        str, typer.Option(help="Comma-separated tickers.")
+    ] = "SPY,QQQ,IWM,EFA,TLT,GLD",
+    config: Annotated[Path, typer.Option(help="YAML experiment specification.")] = Path(
+        "configs/default.yaml"
+    ),
+    model: Annotated[str | None, typer.Option(help="Override regime_model.")] = None,
+    artifacts: Annotated[Path, typer.Option(help="Output directory.")] = Path("artifacts"),
+    cache: Annotated[Path, typer.Option(help="Market-data cache directory.")] = Path("data/cache"),
+) -> None:
+    """Run the same experiment on several assets and summarize the results side by side."""
+    from dataclasses import replace
+
+    from amrrp.data.cache import MarketDataCache
+    from amrrp.data.providers import YFinanceProvider
+    from amrrp.data.repository import MarketDataRepository
+    from amrrp.experiments.specification import ExperimentSpec
+    from amrrp.experiments.study import run_study
+
+    spec = ExperimentSpec.from_yaml(config) if config.exists() else ExperimentSpec()
+    if model:
+        spec = replace(spec, regime_model=model)
+    repository = MarketDataRepository(YFinanceProvider(), MarketDataCache(cache))
+    tickers = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    directory, table = run_study(tickers, spec, repository.get, artifacts)
+    typer.echo(f"Study written to {directory}\n")
+    typer.echo(table.round(3).to_string())
+
+
+@app.command()
 def dashboard(
     artifacts: Annotated[Path, typer.Option(help="Directory of experiment runs.")] = Path(
         "artifacts"

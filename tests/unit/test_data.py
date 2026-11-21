@@ -49,6 +49,18 @@ def test_validate_rejects_inconsistent_high_low() -> None:
         validate_market_frame(frame)
 
 
+def test_cleaning_snaps_floating_point_noise_but_not_real_errors() -> None:
+    """A high 1e-16 below the close is rounding noise; a high 10% below is bad data."""
+    frame = clean_market_frame(valid_frame())
+    noisy = frame.copy()
+    noisy.loc[noisy.index[0], "High"] = noisy.loc[noisy.index[0], "Close"] * (1 - 1e-16) - 1e-16
+    validate_market_frame(clean_market_frame(noisy))
+    broken = frame.copy()
+    broken.loc[broken.index[0], "High"] = broken.loc[broken.index[0], "Close"] * 0.9
+    with pytest.raises(ValueError, match="High"):
+        validate_market_frame(clean_market_frame(broken))
+
+
 def test_empty_download_fails_with_a_clear_message() -> None:
     """An empty frame is rejected before it reaches any model."""
     with pytest.raises(ValueError, match="empty"):

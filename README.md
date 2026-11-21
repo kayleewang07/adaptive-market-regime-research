@@ -9,6 +9,8 @@ turbulent market regimes with unsupervised models, builds a strategy that adapts
 regime, and tests it the way a quant researcher would: **out of sample, after trading
 costs, with bootstrap confidence intervals, on six asset classes**.
 
+**[Try it in 5 minutes →](#try-it-in-5-minutes)**
+
 ![Regime history](screenshots/regime_history.png)
 
 ## What it does
@@ -141,39 +143,95 @@ switching rule is deliberately simple (one strategy per regime, chosen once).
 ![Strategy Sharpe by regime](screenshots/strategies_by_regime.png)
 ![Equity curves](screenshots/equity_curves.png)
 
-## Quick start
+## Try it in 5 minutes
 
-Requires Python 3.11+.
+You need **Python 3.11 or newer** and **git**. Check with `python3 --version` (on Windows,
+`python --version`).
+
+### 1. Install
+
+**macOS / Linux**
 
 ```bash
 git clone https://github.com/kayleewang07/adaptive-market-regime-research.git
 cd adaptive-market-regime-research
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Run an experiment (downloads SPY on first use, then reads it from `data/cache/`):
+**Windows (PowerShell)**
 
-```bash
-amrrp run                       # uses configs/default.yaml
-amrrp run --model gmm           # gmm | hmm | kmeans | bayesian_changepoint
-amrrp run --symbol QQQ --config configs/default.yaml
+```powershell
+git clone https://github.com/kayleewang07/adaptive-market-regime-research.git
+cd adaptive-market-regime-research
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
-Run the same experiment across several assets and get one summary table:
+Installation takes 2–4 minutes.
+
+### 2. Check that everything works (no internet needed)
 
 ```bash
-amrrp study                                 # SPY, QQQ, IWM, EFA, TLT, GLD
-amrrp study --symbols SPY,TLT --model gmm
+pytest
 ```
 
-Open the dashboard:
+You should see `56 passed` after about 15 seconds. The tests run on synthetic prices and
+cover the metrics, every model, the look-ahead checks, end-to-end experiments and the
+dashboard.
+
+### 3. Run the experiment on real data
+
+```bash
+amrrp run
+```
+
+This downloads SPY prices from Yahoo Finance (cached in `data/cache/` afterwards), fits
+the regime model on 2005–2014 and prints the out-of-sample results for 2015–2024:
+
+```text
+Out-of-sample metrics (2015-01-01 to 2025-01-01):
+                          annual_return   cagr  volatility  sharpe  sortino  calmar  max_drawdown
+buy_and_hold                      0.138  0.130       0.176   0.783    1.094   0.386        -0.337
+moving_average_crossover          0.084  0.079       0.126   0.668    0.900   0.359        -0.220
+mean_reversion                    0.053  0.046       0.130   0.409    0.574   0.139        -0.329
+volatility_breakout               0.014  0.012       0.062   0.226    0.302   0.100        -0.121
+momentum                          0.075  0.070       0.121   0.619    0.832   0.295        -0.238
+regime_switching                  0.111  0.104       0.155   0.720    1.002   0.310        -0.337
+```
+
+### 4. Explore the results
 
 ```bash
 amrrp dashboard
 ```
 
-`python run_research.py` does the same as `amrrp run`.
+This opens an interactive dashboard in your browser. Press `Ctrl+C` in the terminal to stop it.
+
+### More options
+
+| Command | What it does |
+|---|---|
+| `amrrp run --model gmm` | use another regime model: `hmm` (default), `gmm`, `kmeans`, `bayesian_changepoint` |
+| `amrrp run --symbol QQQ` | run on any ticker Yahoo Finance has |
+| `amrrp study` | run on SPY, QQQ, IWM, EFA, TLT and GLD and print one comparison table (1–2 minutes) |
+| `amrrp study --symbols SPY,TLT --model gmm` | the same, for your own list of tickers |
+| `amrrp --help` | list every command and option |
+
+<details>
+<summary><b>Troubleshooting</b></summary>
+
+- **`amrrp: command not found`**: the virtual environment isn't active. Run
+  `source .venv/bin/activate` (Windows: `.venv\Scripts\activate`) from the project folder.
+- **Windows says running scripts is disabled**: run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then activate again.
+- **`No data returned for 'SPY'`**: Yahoo Finance couldn't be reached. Check your
+  connection; some corporate networks block it. The tests in step 2 don't need it.
+- **`python3` not found on Windows**: use `python` instead.
+
+</details>
 
 ### Configuration
 
@@ -216,7 +274,7 @@ Each run writes a folder like `artifacts/20250101T120000Z-hmm-1a2b3c/` containin
 ## Development
 
 ```bash
-pytest          # 56 tests; no network needed (they use synthetic prices)
+pytest          # 56 tests, no network needed
 ruff check .
 mypy            # strict mode
 ```

@@ -1,5 +1,9 @@
 # Adaptive Market Regime Research
 
+[![tests](https://github.com/kayleewang07/adaptive-market-regime-research/actions/workflows/tests.yml/badge.svg)](https://github.com/kayleewang07/adaptive-market-regime-research/actions/workflows/tests.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 Do simple trading strategies behave differently in calm and turbulent markets? This project
 detects market regimes with unsupervised models and measures how five baseline strategies
 perform in each regime, **using only out-of-sample data for every reported result**.

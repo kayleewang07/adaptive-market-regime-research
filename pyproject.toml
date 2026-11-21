@@ -9,7 +9,7 @@ description = "Research platform for detecting market regimes and evaluating str
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Adaptive Market Regime Research Platform Contributors" }]
+authors = [{ name = "Kaylee Wang" }]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Financial and Insurance Industry",
